@@ -12,7 +12,7 @@ function getApiKey(): string | undefined {
   );
 }
 
-function getClient(): GoogleGenAI {
+function getClient(): GoogleGenAI | null {
   const key = getApiKey();
   // Minimal diagnostics without leaking the actual key value
   if (!key) {
@@ -25,7 +25,7 @@ function getClient(): GoogleGenAI {
     });
   }
   if (!key) {
-    throw new Error("VITE_API_KEY (or GEMINI_API_KEY/API_KEY) environment variable not set");
+    return null;
   }
   return new GoogleGenAI({ apiKey: key });
 }
@@ -90,14 +90,30 @@ Generate the graph structure based on these instructions.
 
   try {
     const ai = getClient();
-    const result = await ai.models.generateContent({
-      model: "gemini-2.0-flash",
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: responseSchema,
-      },
-    });
+    let result: any;
+
+    if (ai) {
+      result = await ai.models.generateContent({
+        model: "gemini-2.0-flash",
+        contents: prompt,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: responseSchema,
+        },
+      });
+    } else {
+      const response = await fetch("/api/gemini", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt }),
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`Server API error (${response.status}): ${text}`);
+      }
+      result = await response.json();
+    }
     // Extract text from response
     let jsonText: string;
     const maybeTextFn = (result as any)?.text;
