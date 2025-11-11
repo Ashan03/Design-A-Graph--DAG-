@@ -1,70 +1,4 @@
-
-import { GoogleGenAI, Type } from "@google/genai";
 import { GraphData } from "../types";
-
-// Lazily resolve API key to avoid crashing the app at module load time
-function getApiKey(): string | undefined {
-  return (
-    (import.meta as any)?.env?.VITE_API_KEY ||
-    (globalThis as any)?.VITE_API_KEY ||
-    (typeof process !== "undefined" ? (process as any)?.env?.GEMINI_API_KEY : undefined) ||
-    (typeof process !== "undefined" ? (process as any)?.env?.API_KEY : undefined)
-  );
-}
-
-function getClient(): GoogleGenAI | null {
-  const key = getApiKey();
-  // Minimal diagnostics without leaking the actual key value
-  if (!key) {
-    console.warn("Gemini key check:", {
-      hasImportMeta: typeof import.meta !== "undefined",
-      hasViteKey: typeof (import.meta as any)?.env?.VITE_API_KEY !== "undefined",
-      hasGlobalKey: typeof (globalThis as any)?.VITE_API_KEY !== "undefined",
-      hasProcViteKey: typeof (typeof process !== "undefined" ? (process as any)?.env?.VITE_API_KEY : undefined) !== "undefined",
-      hasProcGeminiKey: typeof (typeof process !== "undefined" ? (process as any)?.env?.GEMINI_API_KEY : undefined) !== "undefined",
-    });
-  }
-  if (!key) {
-    return null;
-  }
-  return new GoogleGenAI({ apiKey: key });
-}
-
-const responseSchema = {
-    type: Type.OBJECT,
-    properties: {
-      nodes: {
-        type: Type.ARRAY,
-        description: 'A list of all nodes in the graph.',
-        items: {
-          type: Type.OBJECT,
-          properties: {
-            id: { type: Type.STRING, description: 'A unique identifier for the node, e.g., "node-1".' },
-            label: { type: Type.STRING, description: 'A short, concise title for the node.' },
-            description: { type: Type.STRING, description: 'The source text or a detailed description of the node.' },
-            type: { type: Type.STRING, description: "The category of the node ('Goal', 'Feature', 'Task', 'Constraint', 'Idea')." },
-            outputs: { type: Type.ARRAY, description: 'A list of artifacts or data this node produces, e.g., ["CSV Report", "User Image"].', items: { type: Type.STRING } },
-          },
-          required: ['id', 'label', 'description', 'type'],
-        },
-      },
-      edges: {
-        type: Type.ARRAY,
-        description: 'A list of all edges representing relationships between nodes.',
-        items: {
-          type: Type.OBJECT,
-          properties: {
-            id: { type: Type.STRING, description: 'A unique identifier for the edge, e.g., "edge-1".' },
-            source: { type: Type.STRING, description: 'The ID of the source node (the provider of data/work).' },
-            target: { type: Type.STRING, description: 'The ID of the target node (the consumer of data/work).' },
-            label: { type: Type.STRING, description: 'A short description of the artifact or data being passed from the source to the target (e.g., "User Data").' },
-          },
-          required: ['id', 'source', 'target', 'label'],
-        },
-      },
-    },
-    required: ['nodes', 'edges'],
-};
 
 export async function parseDocumentToGraph(documentText: string): Promise<GraphData> {
   const prompt = `
@@ -89,40 +23,22 @@ Generate the graph structure based on these instructions.
 `;
 
   try {
-    const ai = getClient();
-    let result: any;
+    // Always call the serverless API to keep secrets server-side
+    const response = await fetch("/api/gemini", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt }),
+    });
 
-    if (ai) {
-      result = await ai.models.generateContent({
-        model: "gemini-2.0-flash",
-        contents: prompt,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: responseSchema,
-        },
-      });
-    } else {
-      const response = await fetch("/api/gemini", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt }),
-      });
-
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(`Server API error (${response.status}): ${text}`);
-      }
-      result = await response.json();
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Server API error (${response.status}): ${text}`);
     }
+    const result = await response.json();
     // Extract text from response
     let jsonText: string;
-    const maybeTextFn = (result as any)?.text;
-    if (typeof maybeTextFn === "function") {
-      jsonText = (result as any).text().trim();
-    } else {
-      const parts = (result as any)?.candidates?.[0]?.content?.parts ?? [];
-      jsonText = parts.map((p: any) => p?.text ?? "").join("").trim();
-    }
+    const parts = (result as any)?.candidates?.[0]?.content?.parts ?? [];
+    jsonText = parts.map((p: any) => p?.text ?? "").join("").trim();
     // Try strict parse first
     let parsedJson: unknown;
     try {
