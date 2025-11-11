@@ -1,0 +1,5 @@
+{
+  "name": "Design Structurizer",
+  "description": "A web-based tool that converts a designer’s written project description—such as a PRD or concept note—into a directed, editable graph of tasks, ideas, and dependencies to help visualize project structure.",
+  "requestFramePermissions": []
+}
