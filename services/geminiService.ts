@@ -3,92 +3,150 @@ import { ensureAcyclicGraph } from "../utils/graphUtils";
 
 export async function parseDocumentToGraph(documentText: string, apiKey: string): Promise<GraphData> {
   const prompt = `
-You are an expert software architect who converts project descriptions into executable system architecture diagrams. Your goal is to create a directed acyclic graph (DAG) representing ACTUAL system components, APIs, databases, services, and logic blocks—not abstract concepts.
+You are a senior software architect. Convert the following project description into a detailed technical architecture graph with ACTUAL buildable components.
 
-**CRITICAL: Generate Real Architecture Components**
+**CRITICAL DECOMPOSITION RULES:**
 
-Instead of generic names like "Constraint_1" or "Feature_3", create nodes that represent CONCRETE architectural elements:
-- **APIs/Services**: "User Authentication Service", "Image Processing API", "Search Service"
-- **Data Stores**: "User Profile DB", "Image Metadata Store", "Tag Index"
-- **Logic Modules**: "ML Inference Engine", "Tag Classifier", "Search Query Parser"
-- **Infrastructure**: "S3 Image Bucket", "CloudFront CDN", "Lambda Functions"
-- **UI Components**: "Login Screen", "Photo Gallery View", "Search Interface"
+1. **NEVER use high-level "Feature" nodes as standalone components**
+   - WRONG: {"label": "Image Upload Feature", "inputs": [], "outputs": ["images"]}
+   - RIGHT: Break it into actual technical components (UI form, API endpoint, storage, database)
 
-**Core Principles:**
-1. **Architecture-First Thinking:** Each node should be a buildable, deployable, or implementable component
-2. **Meaningful Names:** Use descriptive names that a developer would recognize: "OAuth2 Provider", "PostgreSQL Users Table", "React Dashboard"
-3. **Real Data Flow:** Edges represent actual data/API calls: "JWT Token", "Image Metadata", "Search Results JSON"
-4. **Layered Design:** Infrastructure → Storage → Backend Services → Business Logic → Frontend
+2. **Every component MUST have clear inputs and outputs:**
+   - **Root components** (e.g., "Login Form UI", "File Upload Widget"): inputs = [], MUST have outputs
+   - **Intermediate components** (e.g., "POST /auth API", "Image Resizer Service"): MUST have BOTH inputs AND outputs
+   - **Terminal components** (e.g., "Users Table", "S3 Bucket"): MUST have inputs, outputs can be []
+   - **ABSOLUTELY NEVER create a node with both inputs=[] AND outputs=[]**
 
-**Node Creation Rules:**
-1. **Identify Nodes as System Components:**
-   - **type**: Goal (business objective) | Feature (user-facing capability) | Task (implementation work) | Constraint (technical requirement) | Idea (future enhancement)
-   - **label**: MUST be a specific component name, NOT generic. Examples:
-     * Good: "PostgreSQL Database", "Express.js API Server", "React Photo Grid"
-     * Bad: "Database_1", "Backend Service", "Feature_2"
-   - **moduleType**: ui | backend | storage | ml-model | data-pipeline | schema | infra | integration | logic
-   - **description**: Brief technical description of what this component does
-   - **implementationType**: What kind of work this is: "API Endpoint" | "Database Query" | "Database Schema" | "Frontend Component" | "Background Job" | "Configuration" | "Infrastructure Setup" | "ML Model Training" | "Data Pipeline" | "Authentication" | "File Storage" | "Message Queue" | "Cache Layer" | "Business Logic" | "UI/UX Design"
-   - **inputs**: REQUIRED - Specific artifacts consumed. Every node must have inputs (except root nodes). Examples: ["User Credentials", "Image Binary", "SQL Query", "Configuration File"]
-   - **outputs**: REQUIRED - Specific artifacts produced. Every node must have outputs (except terminal nodes). Examples: ["Auth Token", "Thumbnail URL", "Search Results", "Processed Data"]
-   - **resourceLinks**: Array of helpful learning resources (max 3 per node):
-     * { "title": "Brief description", "url": "actual URL", "type": "docs|tutorial|video|forum" }
-     * Prefer official documentation, popular tutorials, or reputable sources
-     * Examples: AWS docs, MDN, official library docs, popular YouTube channels
-   - **owners**: Roles responsible [frontend, backend, ml, infra, design, data, devops]
-   - **stack**: Actual technologies [react, express, postgres, s3, tensorflow, etc.]
+3. **Use concrete, specific data artifacts:**
+   - Good: "User Credentials JSON", "JWT Access Token", "Image Binary Data", "S3 URL String"
+   - Bad: "data", "info", "result", "depends on"
 
-CRITICAL INPUT/OUTPUT RULES:
-- Root nodes (entry points): Can have empty inputs, MUST have outputs
-- Intermediate nodes: MUST have both inputs AND outputs  
-- Terminal nodes (final steps): MUST have inputs, can have empty outputs
-- Never leave both inputs and outputs empty
-- Be specific: Not "data" but "User Profile JSON", "Image Metadata Object", "Auth JWT Token"
+**Component Naming Standards:**
+- **UI Components**: "Login Form (React)", "Photo Gallery Grid", "Search Bar Component"
+- **API Endpoints**: "POST /api/auth/login", "GET /api/images/:id", "PUT /api/albums"
+- **Services**: "Image Processing Service", "ML Tagging Engine", "Email Notification Worker"
+- **Storage**: "S3 Image Bucket", "PostgreSQL Users Table", "Redis Session Cache"
+- **Infrastructure**: "EC2 Application Server", "CloudFront CDN", "Lambda Resize Function"
 
-2. **Create Edges as Data/Control Flow:**
-   - Edge direction: Provider (source) → Consumer (target)
-   - **label**: The ACTUAL data/artifact being transferred:
-     * Good: "User Session Token", "Optimized Image URL", "Classification Scores"
-     * Bad: "data", "depends on", "connects to"
+**Required Fields:**
+- **type**: Goal | Feature | Task | Constraint | Idea (business classification)
+- **moduleType**: ui | backend | storage | ml-model | data-pipeline | schema | infra | integration | logic
+- **implementationType**: "API Endpoint" | "Database Query" | "Database Schema" | "Frontend Component" | "Background Job" | "Configuration" | "Infrastructure Setup" | "ML Model Training" | "Data Pipeline" | "Authentication" | "File Storage" | "Message Queue" | "Cache Layer" | "Business Logic" | "UI/UX Design"
+- **inputs**: Array of specific data artifacts consumed ([] only for root nodes)
+- **outputs**: Array of specific data artifacts produced ([] only for terminal nodes)
+- **resourceLinks**: Max 3 learning resources per node:
+  * {"title": "descriptive name", "url": "actual URL", "type": "docs"|"tutorial"|"video"|"forum"}
+  * Prefer official docs: AWS, React, PostgreSQL, Express, TensorFlow, etc.
+- **stack**: Actual tech stack items ["react", "express", "postgres", "s3", "python"]
+- **owners**: Responsible teams ["frontend", "backend", "ml", "infra", "devops"]
 
-3. **Architecture Decomposition:**
-   Break down high-level requirements into actual system components:
-   - "User can upload images" → ["Image Upload Form (UI)", "File Upload API", "S3 Storage Bucket", "Upload Validator"]
-   - "Automatic tagging" → ["ML Model Container", "Feature Extractor", "Tag Database", "Inference API"]
-   - "Search photos" → ["Search UI", "ElasticSearch Index", "Query Service", "Results Formatter"]
+**Decomposition Examples:**
 
-4. **Ensure Complete Architecture:**
-   - Every feature needs: UI → API → Logic → Storage chain
-   - Every API needs authentication/authorization components
-   - Every storage needs schema definition
-   - Infrastructure components must be explicit
+WRONG - High-level feature nodes without technical detail:
+{
+  "nodes": [
+    {"id": "upload_feature", "label": "Image Upload Feature", "inputs": [], "outputs": ["images"]},
+    {"id": "search_feature", "label": "Search Functionality", "inputs": [], "outputs": ["results"]}
+  ]
+}
 
-**Output Schema:**
-Generate a JSON object with this exact structure:
+CORRECT - Broken down into actual buildable components:
+{
+  "nodes": [
+    {
+      "id": "upload_form_ui",
+      "label": "Image Upload Form (React)",
+      "description": "File input component with preview and validation",
+      "type": "Task",
+      "moduleType": "ui",
+      "implementationType": "Frontend Component",
+      "inputs": [],
+      "outputs": ["File Blob", "File Metadata"],
+      "stack": ["react", "typescript"],
+      "owners": ["frontend"],
+      "resourceLinks": [
+        {"title": "React File Input Guide", "url": "https://react.dev/reference/react-dom/components/input#reading-the-files-on-the-client", "type": "docs"}
+      ]
+    },
+    {
+      "id": "upload_api",
+      "label": "POST /api/upload",
+      "description": "Multipart file upload endpoint with S3 integration",
+      "type": "Task",
+      "moduleType": "backend",
+      "implementationType": "API Endpoint",
+      "inputs": ["File Blob", "Auth Token", "File Metadata"],
+      "outputs": ["S3 URL", "Image ID", "Upload Status"],
+      "stack": ["express", "multer", "aws-sdk"],
+      "owners": ["backend"],
+      "resourceLinks": [
+        {"title": "Express Multer Middleware", "url": "https://expressjs.com/en/resources/middleware/multer.html", "type": "docs"},
+        {"title": "AWS S3 Upload Tutorial", "url": "https://docs.aws.amazon.com/sdk-for-javascript/v3/developer-guide/s3-example-creating-buckets.html", "type": "tutorial"}
+      ]
+    },
+    {
+      "id": "s3_images_bucket",
+      "label": "S3 Images Bucket",
+      "description": "Cloud storage for uploaded image files",
+      "type": "Task",
+      "moduleType": "storage",
+      "implementationType": "File Storage",
+      "inputs": ["File Binary", "S3 Put Request"],
+      "outputs": ["S3 URL", "Storage Event"],
+      "stack": ["aws-s3"],
+      "owners": ["infra"],
+      "resourceLinks": [
+        {"title": "AWS S3 Documentation", "url": "https://docs.aws.amazon.com/s3/", "type": "docs"}
+      ]
+    },
+    {
+      "id": "images_table",
+      "label": "Images Table (PostgreSQL)",
+      "description": "Stores image metadata, URLs, and user associations",
+      "type": "Task",
+      "moduleType": "schema",
+      "implementationType": "Database Schema",
+      "inputs": ["Image ID", "S3 URL", "User ID", "Upload Timestamp"],
+      "outputs": [],
+      "stack": ["postgresql"],
+      "owners": ["backend"],
+      "resourceLinks": [
+        {"title": "PostgreSQL Table Design", "url": "https://www.postgresql.org/docs/current/ddl-basics.html", "type": "docs"}
+      ]
+    }
+  ],
+  "edges": [
+    {"id": "e1", "source": "upload_form_ui", "target": "upload_api", "label": "File Blob"},
+    {"id": "e2", "source": "upload_api", "target": "s3_images_bucket", "label": "S3 Put Request"},
+    {"id": "e3", "source": "s3_images_bucket", "target": "upload_api", "label": "S3 URL"},
+    {"id": "e4", "source": "upload_api", "target": "images_table", "label": "Image Metadata"}
+  ]
+}
+
+**Architecture Layers (follow this order):**
+1. **Infrastructure Layer**: EC2, Lambda, CloudFront, VPC, Load Balancers
+2. **Storage Layer**: S3 Buckets, RDS, DynamoDB, Redis, ElasticSearch
+3. **Schema Layer**: Database tables, indexes, schemas
+4. **Backend Layer**: API endpoints, services, workers, queues
+5. **Business Logic Layer**: Processing engines, ML models, validators
+6. **Frontend Layer**: UI components, pages, state management
+
+**Output JSON Schema:**
 {
   "nodes": [
     {
       "id": "unique-kebab-case-id",
-      "label": "Descriptive Component Name",
-      "description": "What this component does technically",
+      "label": "Specific Component Name",
+      "description": "Technical description",
       "type": "Goal|Feature|Task|Constraint|Idea",
       "moduleType": "ui|backend|storage|ml-model|data-pipeline|schema|infra|integration|logic",
-      "implementationType": "API Endpoint|Database Query|Database Schema|Frontend Component|etc",
-      "outputs": ["Specific Output 1", "Specific Output 2"],
+      "implementationType": "API Endpoint|Database Schema|Frontend Component|etc",
       "inputs": ["Specific Input 1"],
-      "owners": ["frontend", "backend"],
-      "stack": ["react", "node.js"],
+      "outputs": ["Specific Output 1"],
+      "stack": ["tech1", "tech2"],
+      "owners": ["team1"],
       "resourceLinks": [
-        {
-          "title": "Official React Documentation",
-          "url": "https://react.dev",
-          "type": "docs"
-        },
-        {
-          "title": "Building Upload Forms Tutorial",
-          "url": "https://example.com/tutorial",
-          "type": "tutorial"
-        }
+        {"title": "Resource Title", "url": "https://...", "type": "docs|tutorial|video|forum"}
       ]
     }
   ],
@@ -142,15 +200,23 @@ Good Output:
   * "Search Results UI" (ui, react, Frontend Component)
     - inputs: ["Search Results JSON"]
     - outputs: ["Rendered Gallery View"]
-    - resources: [{ title: "React Grid Layouts", url: "https://react.dev/learn/rendering-lists", type: "docs" }]
+    - resources: [{ title: "React Lists & Keys", url: "https://react.dev/learn/rendering-lists", type: "docs" }]
 - Edges:
   * "Image Upload UI" → "Upload API Gateway" (label: "Multipart Form Data")
   * "Upload API Gateway" → "S3 Image Bucket" (label: "Image Binary")
   * "S3 Image Bucket" → "ML Tagging Service" (label: "Image URL")
   * "ML Tagging Service" → "Tag Index" (label: "Tag Predictions Array")
-  * "ML Tagging Service" → "Tag Index" (label: "Generated Tags")
-  * "Search Results UI" → "Search API" (label: "Search Query")
-  * "Search API" → "Tag Index" (label: "Tag Lookup Request")
+  * "Search Results UI" → "Search API" (label: "Search Query String")
+  * "Search API" → "Tag Index" (label: "ElasticSearch Query DSL")
+  * "Tag Index" → "Search API" (label: "Matching Document IDs")
+
+**Final Requirements:**
+- Minimum 8-15 nodes for a complete architecture
+- Every node MUST have either inputs or outputs (or both)
+- Include authentication/authorization components for any user-facing features
+- Add infrastructure components (servers, CDN, load balancers) when mentioned
+- Provide 1-3 relevant resourceLinks per node (official docs preferred)
+- Ensure DAG structure (no cycles)
 
 **CRITICAL: NO CYCLES ALLOWED**
 This MUST be a Directed Acyclic Graph (DAG). Ensure:
@@ -158,6 +224,12 @@ This MUST be a Directed Acyclic Graph (DAG). Ensure:
 - No bidirectional flows (A → B AND B → A)
 - All edges flow in one direction through the architecture
 - Think in terms of layers: Lower layers provide services to higher layers, never the reverse
+
+Now convert this document:
+
+${documentText}
+
+Return ONLY valid JSON matching the schema above. No markdown, no explanations.
 
 If you detect a potential cycle, break it by:
 - Choosing the dominant flow direction (typically: infrastructure → storage → backend → frontend)
