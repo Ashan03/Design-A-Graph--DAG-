@@ -6,10 +6,12 @@ import { ChevronDownIcon } from './icons/ChevronDownIcon';
 interface ChecklistViewProps {
   nodes: Node[];
   edges: Edge[];
+  completedNodes: Set<string>;
+  onToggleComplete: (nodeId: string) => void;
+  readyToWorkNodes: Set<string>;
 }
 
-const ChecklistView: React.FC<ChecklistViewProps> = ({ nodes, edges }) => {
-  const [completed, setCompleted] = useState<Set<string>>(new Set());
+const ChecklistView: React.FC<ChecklistViewProps> = ({ nodes, edges, completedNodes, onToggleComplete, readyToWorkNodes }) => {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   const dependencies = useMemo(() => {
@@ -20,18 +22,6 @@ const ChecklistView: React.FC<ChecklistViewProps> = ({ nodes, edges }) => {
     });
     return deps;
   }, [nodes, edges]);
-
-  const toggleCompleted = (nodeId: string) => {
-    setCompleted(prev => {
-      const newCompleted = new Set(prev);
-      if (newCompleted.has(nodeId)) {
-        newCompleted.delete(nodeId);
-      } else {
-        newCompleted.add(nodeId);
-      }
-      return newCompleted;
-    });
-  };
 
   const toggleExpanded = (nodeId: string) => {
     setExpanded(prev => {
@@ -52,16 +42,24 @@ const ChecklistView: React.FC<ChecklistViewProps> = ({ nodes, edges }) => {
       <ul className="space-y-3">
         {nodes.map(node => {
           const nodeDeps = dependencies.get(node.id) || [];
-          const isEnabled = nodeDeps.every(depId => completed.has(depId));
-          const isItemCompleted = completed.has(node.id);
+          const isEnabled = nodeDeps.every(depId => completedNodes.has(depId));
+          const isItemCompleted = completedNodes.has(node.id);
           const isItemExpanded = expanded.has(node.id);
+          const isReadyToWork = readyToWorkNodes.has(node.id);
 
           return (
-            <li key={node.id} className={`bg-card p-4 rounded-lg border border-border transition-opacity ${!isEnabled ? 'opacity-50' : ''}`}>
+            <li 
+              key={node.id} 
+              className={`bg-card p-4 rounded-lg border transition-opacity relative ${
+                !isEnabled ? 'opacity-50 border-border' : 
+                isReadyToWork ? 'border-green-500 shadow-[0_0_0_3px_rgba(34,197,94,0.2)]' : 
+                'border-border'
+              }`}
+            >
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-4">
                   <button
-                    onClick={() => isEnabled && toggleCompleted(node.id)}
+                    onClick={() => isEnabled && onToggleComplete(node.id)}
                     disabled={!isEnabled}
                     className={`w-6 h-6 rounded border-2 flex items-center justify-center transition-colors ${
                       isEnabled ? 'border-primary cursor-pointer hover:bg-primary/20' : 'border-muted-foreground cursor-not-allowed'

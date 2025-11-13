@@ -36,14 +36,27 @@ export default function App() {
   const [graphData, setGraphData] = useState<GraphData | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<ViewMode>('graph');
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const [nodeTags, setNodeTags] = useState<Record<string, Tag>>({});
   const [focusContextOnly, setFocusContextOnly] = useState<boolean>(false);
+  const [completedNodes, setCompletedNodes] = useState<Set<string>>(new Set());
+  const [apiKey, setApiKey] = useState<string>(() => {
+    return localStorage.getItem('gemini-api-key') || '';
+  });
+
+  // Persist API key to localStorage
+  const handleSetApiKey = useCallback((key: string) => {
+    setApiKey(key);
+    localStorage.setItem('gemini-api-key', key);
+  }, []);
 
   const handleGenerateGraph = useCallback(async () => {
     if (!documentText.trim()) {
       setError('Project description cannot be empty.');
+      return;
+    }
+    if (!apiKey.trim()) {
+      setError('Please enter your Gemini API key.');
       return;
     }
     setIsLoading(true);
@@ -53,7 +66,7 @@ export default function App() {
     setNodeTags({});
 
     try {
-      const data = await parseDocumentToGraph(documentText);
+      const data = await parseDocumentToGraph(documentText, apiKey);
       if (data.nodes && data.edges) {
         setGraphData(data);
       } else {
@@ -102,13 +115,26 @@ export default function App() {
     }
   }, [selectedNode]);
 
+  const toggleNodeCompletion = useCallback((nodeId: string) => {
+    setCompletedNodes(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(nodeId)) {
+        newSet.delete(nodeId);
+      } else {
+        newSet.add(nodeId);
+      }
+      return newSet;
+    });
+  }, []);
+
   const sortedNodeIds = React.useMemo(() => {
     if (!graphData) return [];
     try {
       return topoSort(graphData);
     } catch (e) {
-      setError("Graph contains a cycle and cannot be displayed as a checklist.");
-      return [];
+      // This should never happen now since we ensure acyclic graphs
+      console.error("Unexpected cycle in graph:", e);
+      return graphData.nodes.map(n => n.id);
     }
   }, [graphData]);
   
@@ -117,6 +143,20 @@ export default function App() {
     const nodeMap = new Map(graphData.nodes.map(n => [n.id, n]));
     return sortedNodeIds.map(id => nodeMap.get(id)).filter((n): n is Node => !!n);
   }, [sortedNodeIds, graphData]);
+
+  const readyToWorkNodes = React.useMemo(() => {
+    if (!graphData) return new Set<string>();
+    const ready = new Set<string>();
+    graphData.nodes.forEach(node => {
+      if (completedNodes.has(node.id)) return; // Skip already completed
+      const dependencies = graphData.edges.filter(e => e.target === node.id).map(e => e.source);
+      const allDepsComplete = dependencies.every(depId => completedNodes.has(depId));
+      if (allDepsComplete) {
+        ready.add(node.id);
+      }
+    });
+    return ready;
+  }, [graphData, completedNodes]);
 
   return (
     <div className="flex flex-col md:flex-row h-screen font-sans bg-background text-foreground">
@@ -128,8 +168,8 @@ export default function App() {
           isLoading={isLoading}
           error={error}
           graphData={graphData}
-          viewMode={viewMode}
-          setViewMode={setViewMode}
+          apiKey={apiKey}
+          setApiKey={handleSetApiKey}
         />
         <div className="flex items-center gap-2 text-xs text-foreground">
           <input
@@ -176,7 +216,7 @@ export default function App() {
                 <p>{error}</p>
             </div>
         )}
-        {!isLoading && graphData && viewMode === 'graph' && (
+        {!isLoading && graphData && (
           <GraphView
             data={graphData}
             selectedNodeId={selectedNode?.id || null}
@@ -184,12 +224,22 @@ export default function App() {
             onDeleteNode={handleDeleteNode}
             nodeTags={nodeTags}
             showOnlySelectedContext={focusContextOnly}
+            completedNodes={completedNodes}
+            readyToWorkNodes={readyToWorkNodes}
           />
         )}
-        {!isLoading && graphData && viewMode === 'checklist' && (
-           <ChecklistView nodes={sortedNodes} edges={graphData.edges} />
-        )}
       </main>
+      {!isLoading && graphData && (
+        <div className="w-full md:w-1/3 xl:w-1/4 border-l border-border overflow-y-auto bg-background">
+          <ChecklistView 
+            nodes={sortedNodes} 
+            edges={graphData.edges}
+            completedNodes={completedNodes}
+            onToggleComplete={toggleNodeCompletion}
+            readyToWorkNodes={readyToWorkNodes}
+          />
+        </div>
+      )}
     </div>
   );
 }

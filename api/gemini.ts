@@ -15,9 +15,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const apiKey = process.env.GEMINI_API_KEY;
+  // Try user-provided API key first, fallback to environment variable
+  const apiKey = req.body?.apiKey || process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    return res.status(500).json({ error: "GEMINI_API_KEY not configured" });
+    return res.status(400).json({ error: "API key required. Please enter your Gemini API key." });
   }
 
   const prompt = req.body?.prompt;
@@ -25,15 +26,31 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(400).json({ error: "Missing prompt body parameter" });
   }
 
+  const fileData = req.body?.fileData; // Optional: { mimeType: string, data: base64 }
+
   let lastError: any = null;
   for (const model of MODEL_CANDIDATES) {
     try {
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      
+      // Build request body
+      const parts: any[] = [{ text: prompt }];
+      
+      // Add inline file data if provided (for PDF, images, etc.)
+      if (fileData?.mimeType && fileData?.data) {
+        parts.push({
+          inline_data: {
+            mime_type: fileData.mimeType,
+            data: fileData.data
+          }
+        });
+      }
+      
       const response = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }]}],
+          contents: [{ parts }],
         }),
       });
 

@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useMemo } from 'react';
 import * as d3 from 'd3';
 import { GraphData, Node, Tag } from '../types';
 import { topoSort } from '../utils/graphUtils';
-import { XIcon } from './icons/XIcon';
+import { optimizeLayerOrdering } from '../utils/layoutUtils';
 
 interface GraphViewProps {
   data: GraphData;
@@ -11,6 +11,8 @@ interface GraphViewProps {
   onDeleteNode: (nodeId: string) => void;
   nodeTags: Record<string, Tag>;
   showOnlySelectedContext?: boolean; // when true, hide nodes/edges not directly connected to selected
+  completedNodes?: Set<string>;
+  readyToWorkNodes?: Set<string>;
 }
 
 const tagColors: Record<Tag, string> = {
@@ -40,9 +42,13 @@ const moduleTypeBorders: Record<string,string> = {
   logic: 'border-zinc-700'
 };
 
-const NODE_WIDTH = 160;
+const MIN_NODE_WIDTH = 160;
+const MAX_NODE_WIDTH = 320;
+// Port UI constants: px-3 = 12px padding on each side of the body columns
+const PORT_SIZE = 12; // diameter in px
+const BODY_PAD_X = 12; // from Tailwind px-3
 
-const GraphView: React.FC<GraphViewProps> = ({ data, selectedNodeId, onNodeClick, onDeleteNode, nodeTags, showOnlySelectedContext = false }) => {
+const GraphView: React.FC<GraphViewProps> = ({ data, selectedNodeId, onNodeClick, onDeleteNode, nodeTags, showOnlySelectedContext = false, completedNodes = new Set(), readyToWorkNodes = new Set() }) => {
   const svgRef = useRef<SVGSVGElement>(null);
   const [positionedNodes, setPositionedNodes] = useState<Node[]>([]);
   const containerRef = useRef<SVGGElement>(null);
@@ -59,6 +65,26 @@ const GraphView: React.FC<GraphViewProps> = ({ data, selectedNodeId, onNodeClick
     });
     return inputs;
   }, [data]);
+
+  const nodeWidths = useMemo(() => {
+    const widths = new Map<string, number>();
+    if (!data) return widths;
+    data.nodes.forEach(node => {
+      const inputs = inputsByNode.get(node.id) || [];
+      const outputs = node.outputs || [];
+      
+      // Estimate width based on text length (rough: ~7px per char for text-xs)
+      const labelWidth = node.label.length * 8 + 60; // +60 for padding and delete button
+      const maxInputWidth = Math.max(0, ...inputs.map(i => i.length * 7 + 30));
+      const maxOutputWidth = Math.max(0, ...outputs.map(o => o.length * 7 + 30));
+      const contentWidth = Math.max(maxInputWidth + maxOutputWidth, 120);
+      
+      const calculatedWidth = Math.max(labelWidth, contentWidth);
+      const finalWidth = Math.min(MAX_NODE_WIDTH, Math.max(MIN_NODE_WIDTH, calculatedWidth));
+      widths.set(node.id, finalWidth);
+    });
+    return widths;
+  }, [data, inputsByNode]);
   
   const nodeHeights = useMemo(() => {
     const heights = new Map<string, number>();
@@ -77,6 +103,7 @@ const GraphView: React.FC<GraphViewProps> = ({ data, selectedNodeId, onNodeClick
 
     const { nodes, edges } = data;
     const height = svgRef.current.parentElement?.clientHeight || 600;
+    const width = svgRef.current.parentElement?.clientWidth || 800;
     
     const layers = new Map<string, number>();
     let sortedNodeIds: string[];
@@ -87,6 +114,7 @@ const GraphView: React.FC<GraphViewProps> = ({ data, selectedNodeId, onNodeClick
       sortedNodeIds = data.nodes.map(n => n.id);
     }
 
+    // Assign layers based on longest path from root
     sortedNodeIds.forEach(nodeId => {
       const parents = edges.filter(e => e.target === nodeId).map(e => e.source);
       let maxParentLayer = -1;
@@ -99,6 +127,7 @@ const GraphView: React.FC<GraphViewProps> = ({ data, selectedNodeId, onNodeClick
       layers.set(nodeId, maxParentLayer + 1);
     });
 
+    // Group nodes by layer
     const nodesByLayer: Node[][] = [];
     layers.forEach((layerIndex, nodeId) => {
       if (!nodesByLayer[layerIndex]) {
@@ -110,26 +139,68 @@ const GraphView: React.FC<GraphViewProps> = ({ data, selectedNodeId, onNodeClick
       }
     });
 
-    const PADDING_X = 280;
-    const PADDING_Y = 40;
+    // Sort nodes within each layer by moduleType to group related components
+    const moduleTypePriority: Record<string, number> = {
+      'infra': 0,
+      'storage': 1,
+      'schema': 2,
+      'backend': 3,
+      'data-pipeline': 4,
+      'ml-model': 5,
+      'integration': 6,
+      'logic': 7,
+      'ui': 8
+    };
+
+    nodesByLayer.forEach(layer => {
+      layer.sort((a, b) => {
+        const aType = a.moduleType || 'logic';
+        const bType = b.moduleType || 'logic';
+        const aPriority = moduleTypePriority[aType] ?? 10;
+        const bPriority = moduleTypePriority[bType] ?? 10;
+        if (aPriority !== bPriority) return aPriority - bPriority;
+        
+        // Secondary sort by number of connections (more connected nodes first)
+        const aConnections = edges.filter(e => e.source === a.id || e.target === a.id).length;
+        const bConnections = edges.filter(e => e.source === b.id || e.target === b.id).length;
+        return bConnections - aConnections;
+      });
+    });
+
+    // Optimize layer ordering to reduce edge crossings
+    const optimizedLayers = optimizeLayerOrdering(nodesByLayer, edges);
+
+    // Calculate dynamic spacing based on layer count and viewport
+    const numLayers = optimizedLayers.length;
+    
+    // Find maximum node width to ensure no horizontal overlap
+    const maxNodeWidth = Math.max(...Array.from(nodeWidths.values()));
+    const PADDING_X = Math.max(maxNodeWidth + 120, Math.min(500, width / (numLayers + 1)));
+    const MIN_PADDING_Y = 80; // Increased for better vertical spacing
+    const LAYER_START_X = 150;
+
     const newNodes = nodes.map(node => {
       const layerIndex = layers.get(node.id) ?? 0;
-      const layer = nodesByLayer[layerIndex] || [];
+      const layer = optimizedLayers[layerIndex] || [];
       const indexInLayer = layer.findIndex(n => n.id === node.id);
       
+      // Calculate cumulative Y offset with actual node heights
       let yOffset = 0;
       for (let i = 0; i < indexInLayer; i++) {
         const prevNodeIdInLayer = layer[i].id;
-        yOffset += nodeHeights.get(prevNodeIdInLayer) || 0;
-        yOffset += PADDING_Y;
+        const prevNodeHeight = nodeHeights.get(prevNodeIdInLayer) || 0;
+        yOffset += prevNodeHeight + MIN_PADDING_Y;
       }
 
-      const totalLayerHeight = layer.reduce((sum, n) => sum + (nodeHeights.get(n.id) || 0), 0) + Math.max(0, layer.length - 1) * PADDING_Y;
+      // Calculate total layer height for centering
+      const totalLayerHeight = layer.reduce((sum, n) => sum + (nodeHeights.get(n.id) || 0), 0) + 
+                               Math.max(0, layer.length - 1) * MIN_PADDING_Y;
       const nodeHeight = nodeHeights.get(node.id) || 0;
 
+      // Center vertically and distribute horizontally
       return {
         ...node,
-        x: layerIndex * PADDING_X + 150,
+        x: LAYER_START_X + layerIndex * PADDING_X,
         y: (height / 2) - (totalLayerHeight / 2) + yOffset + (nodeHeight / 2)
       };
     });
@@ -146,6 +217,33 @@ const GraphView: React.FC<GraphViewProps> = ({ data, selectedNodeId, onNodeClick
     
     const container = d3.select(containerRef.current);
     container.selectAll("*").remove();
+
+    // Create SVG pattern for infinite grid
+    svg.select('defs').remove();
+    const defs = svg.append('defs');
+    const gridSize = 40;
+    
+    const pattern = defs.append('pattern')
+      .attr('id', 'grid-pattern')
+      .attr('width', gridSize)
+      .attr('height', gridSize)
+      .attr('patternUnits', 'userSpaceOnUse');
+    
+    pattern.append('path')
+      .attr('d', `M ${gridSize} 0 L 0 0 0 ${gridSize}`)
+      .attr('fill', 'none')
+      .attr('stroke', 'white')
+      .attr('stroke-width', 1)
+      .attr('opacity', 0.2);
+    
+    // Add large rect with pattern fill (extends far beyond viewport)
+    container.append('rect')
+      .attr('class', 'grid')
+      .attr('x', -10000)
+      .attr('y', -10000)
+      .attr('width', 20000)
+      .attr('height', 20000)
+      .attr('fill', 'url(#grid-pattern)');
     
     const nodeMap = new Map(positionedNodes.map(n => [n.id, n]));
     
@@ -170,6 +268,51 @@ const GraphView: React.FC<GraphViewProps> = ({ data, selectedNodeId, onNodeClick
       linkData = linkData.filter(l => l.source === selectedNodeId || l.target === selectedNodeId);
     }
 
+    // Fan-out config
+    const SIBLING_SPREAD = 8; // px vertical separation per sibling step
+
+    // Build sibling grouping metadata after filtering
+    type LinkExt = typeof linkData[number];
+    const edgeMeta = new Map<string, { sIndex: number; sCount: number; tIndex: number; tCount: number }>();
+
+    // Create source groups keyed by source+label
+    const sourceGroups = new Map<string, LinkExt[]>();
+    linkData.forEach(e => {
+      const key = `${e.source}|${e.label}`;
+      if (!sourceGroups.has(key)) sourceGroups.set(key, []);
+      sourceGroups.get(key)!.push(e);
+    });
+    // sort and assign indices for source groups
+    sourceGroups.forEach(arr => {
+      arr.sort((a, b) => (a.targetNode.y! - b.targetNode.y!) || (a.targetNode.x! - b.targetNode.x!) || a.id.localeCompare(b.id));
+      const count = arr.length;
+      arr.forEach((e, i) => {
+        const meta = edgeMeta.get(e.id) || { sIndex: 0, sCount: 1, tIndex: 0, tCount: 1 };
+        meta.sIndex = i;
+        meta.sCount = count;
+        edgeMeta.set(e.id, meta);
+      });
+    });
+
+    // Create target groups keyed by target+label
+    const targetGroups = new Map<string, LinkExt[]>();
+    linkData.forEach(e => {
+      const key = `${e.target}|${e.label}`;
+      if (!targetGroups.has(key)) targetGroups.set(key, []);
+      targetGroups.get(key)!.push(e);
+    });
+    // sort and assign indices for target groups
+    targetGroups.forEach(arr => {
+      arr.sort((a, b) => (a.sourceNode.y! - b.sourceNode.y!) || (a.sourceNode.x! - b.sourceNode.x!) || a.id.localeCompare(b.id));
+      const count = arr.length;
+      arr.forEach((e, i) => {
+        const meta = edgeMeta.get(e.id) || { sIndex: 0, sCount: 1, tIndex: 0, tCount: 1 };
+        meta.tIndex = i;
+        meta.tCount = count;
+        edgeMeta.set(e.id, meta);
+      });
+    });
+
     const links = container.append('g')
       .attr('class', 'links')
       .selectAll('path')
@@ -179,7 +322,7 @@ const GraphView: React.FC<GraphViewProps> = ({ data, selectedNodeId, onNodeClick
       .attr('stroke', '#a1a1aa')
       .attr('stroke-width', 2)
       .attr('opacity', 0.9)
-      .attr('stroke-linecap', 'round'); // <-- ADD THIS LINE
+      .attr('stroke-linecap', 'round');
 
     const nodes = container.append('g')
       .attr('class', 'nodes')
@@ -201,13 +344,14 @@ const GraphView: React.FC<GraphViewProps> = ({ data, selectedNodeId, onNodeClick
         }));
     
     nodes.append('foreignObject')
-      .attr('width', NODE_WIDTH)
+      .attr('width', d => nodeWidths.get(d.id)!)
       .attr('height', d => nodeHeights.get(d.id)!)
-      .attr('x', -NODE_WIDTH / 2)
+      .attr('x', d => -nodeWidths.get(d.id)! / 2)
       .attr('y', d => -nodeHeights.get(d.id)! / 2)
       .style('overflow', 'visible')
       .append('xhtml:div')
       .attr('class', 'w-full h-full cursor-move select-none')
+      .style('opacity', d => completedNodes.has(d.id) ? '0.5' : '1')
       .html(d => {
         const nodeHeight = nodeHeights.get(d.id)!;
         const bodyHeight = nodeHeight - 28;
@@ -215,22 +359,24 @@ const GraphView: React.FC<GraphViewProps> = ({ data, selectedNodeId, onNodeClick
         const outputs = d.outputs || [];
 
         const inputPortsHtml = inputs.map((input, i) => `
-            <div class="flex items-center gap-2 relative py-1" style="height: 32px;">
-                <div class="absolute" style="left: -5px; top: 50%; transform: translateY(-50%); width: 10px; height: 10px; background-color: white; border: 1px solid #71717a; border-radius: 50%;"></div>
+          <div class="flex items-center gap-2 relative py-1" style="height: 32px;">
+            <div class="absolute rounded-full" style="left: ${-(BODY_PAD_X + PORT_SIZE/2)}px; top: 50%; transform: translateY(-50%); width: ${PORT_SIZE}px; height: ${PORT_SIZE}px; background-color: white; border: 1px solid #71717a; pointer-events: none;"></div>
                 <span class="text-xs text-zinc-800 break-words leading-tight pr-1">${input}</span>
             </div>
         `).join('');
 
         const outputPortsHtml = outputs.map((output, i) => `
-            <div class="flex items-center justify-end gap-2 relative py-1" style="height: 32px;">
-                <span class="text-xs text-zinc-800 break-words text-right leading-tight pl-1">${output}</span>
-                <div class="absolute" style="right: -5px; top: 50%; transform: translateY(-50%); width: 10px; height: 10px; background-color: white; border: 1px solid #71717a; border-radius: 50%;"></div>
+          <div class="flex items-center justify-end gap-2 relative py-1" style="height: 32px;">
+            <span class="text-xs text-zinc-800 break-words text-right leading-tight pl-1">${output}</span>
+            <div class="absolute rounded-full" style="right: ${-(BODY_PAD_X + PORT_SIZE/2)}px; top: 50%; transform: translateY(-50%); width: ${PORT_SIZE}px; height: ${PORT_SIZE}px; background-color: white; border: 1px solid #71717a; pointer-events: none;"></div>
             </div>
         `).join('');
         
         const moduleBorder = d.moduleType ? moduleTypeBorders[d.moduleType] || 'border-zinc-800' : 'border-zinc-800';
+        const isReadyToWork = readyToWorkNodes.has(d.id);
+        const borderClass = selectedNodeId === d.id ? 'border-primary' : isReadyToWork ? 'border-green-500 shadow-[0_0_0_3px_rgba(34,197,94,0.3)]' : moduleBorder;
         return `
-        <div class="flex flex-col shadow-lg border ${selectedNodeId === d.id ? 'border-primary' : moduleBorder} rounded-lg">
+        <div class="flex flex-col shadow-lg border ${borderClass} rounded-lg">
             <div class="bg-black px-3 py-1.5 flex items-center justify-between relative rounded-t-lg" style="height: 28px;">
             <span class="text-xs text-white break-words pr-6 leading-tight">${d.label}</span>
             ${d.moduleType ? `<span class="absolute left-2 -top-2 text-[10px] px-1 py-0.5 rounded bg-white/10 border border-white/20 text-white">${d.moduleType}</span>` : ''}
@@ -259,6 +405,7 @@ const GraphView: React.FC<GraphViewProps> = ({ data, selectedNodeId, onNodeClick
         const node = nodeMap.get(nodeId);
         if (!node) return { x: 0, y: 0 };
         const nodeHeight = nodeHeights.get(node.id)!;
+        const nodeWidth = nodeWidths.get(node.id)!;
 
         let portIndex = -1;
         let x = 0;
@@ -266,11 +413,13 @@ const GraphView: React.FC<GraphViewProps> = ({ data, selectedNodeId, onNodeClick
         if (isOutput) {
             const outputs = node.outputs || [];
             portIndex = outputs.findIndex(o => o === portLabel);
-            x = node.x! + NODE_WIDTH / 2;
+          // center of right port dot (placed outside the body padding)
+          x = node.x! + nodeWidth / 2 + PORT_SIZE/2;
         } else {
             const inputs = inputsByNode.get(node.id) || [];
             portIndex = inputs.findIndex(i => i === portLabel);
-            x = node.x! - NODE_WIDTH / 2;
+          // center of left port dot
+          x = node.x! - nodeWidth / 2 - PORT_SIZE/2;
         }
 
         if (portIndex === -1) {
@@ -295,8 +444,23 @@ const GraphView: React.FC<GraphViewProps> = ({ data, selectedNodeId, onNodeClick
       links.attr('d', d => {
         const sourcePt = getPortPosition(d.source, d.label, true);
         const targetPt = getPortPosition(d.target, d.label, false);
-        const controlPointOffset = Math.abs(targetPt.x - sourcePt.x) * 0.5;
-        return `M ${sourcePt.x} ${sourcePt.y} C ${sourcePt.x + controlPointOffset} ${sourcePt.y}, ${targetPt.x - controlPointOffset} ${targetPt.y}, ${targetPt.x} ${targetPt.y}`;
+        const dx = Math.abs(targetPt.x - sourcePt.x);
+        const controlPointOffset = dx * 0.5;
+
+        // Fan-out offsets
+        const meta = edgeMeta.get(d.id) || { sIndex: 0, sCount: 1, tIndex: 0, tCount: 1 };
+        const sCenter = meta.sIndex - (meta.sCount - 1) / 2;
+        const tCenter = meta.tIndex - (meta.tCount - 1) / 2;
+        // Reduce spread when dx is very small to avoid excessive curvature
+        const spreadScale = Math.min(1, dx / 120);
+        const spread = SIBLING_SPREAD * spreadScale;
+
+        const c1x = sourcePt.x + controlPointOffset;
+        const c2x = targetPt.x - controlPointOffset;
+        const c1y = sourcePt.y + sCenter * spread;
+        const c2y = targetPt.y + tCenter * spread;
+
+        return `M ${sourcePt.x} ${sourcePt.y} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${targetPt.x} ${targetPt.y}`;
       });
     }
 
@@ -310,7 +474,7 @@ const GraphView: React.FC<GraphViewProps> = ({ data, selectedNodeId, onNodeClick
 
     svg.call(zoom);
 
-  }, [positionedNodes, data.edges, selectedNodeId, nodeTags, onNodeClick, onDeleteNode, inputsByNode, nodeHeights]);
+  }, [positionedNodes, data.edges, selectedNodeId, nodeTags, onNodeClick, onDeleteNode, inputsByNode, nodeHeights, nodeWidths, showOnlySelectedContext, completedNodes, readyToWorkNodes]);
   
   return <svg ref={svgRef} className="w-full h-full"><g ref={containerRef}></g></svg>;
 };
