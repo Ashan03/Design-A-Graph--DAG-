@@ -39,6 +39,7 @@ export default function App() {
   const [viewMode, setViewMode] = useState<ViewMode>('graph');
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const [nodeTags, setNodeTags] = useState<Record<string, Tag>>({});
+  const [focusContextOnly, setFocusContextOnly] = useState<boolean>(false);
 
   const handleGenerateGraph = useCallback(async () => {
     if (!documentText.trim()) {
@@ -130,6 +131,19 @@ export default function App() {
           viewMode={viewMode}
           setViewMode={setViewMode}
         />
+        <div className="flex items-center gap-2 text-xs text-foreground">
+          <input
+            id="focus-context"
+            type="checkbox"
+            className="accent-primary h-3 w-3"
+            checked={focusContextOnly}
+            onChange={e => setFocusContextOnly(e.target.checked)}
+            disabled={!selectedNode}
+          />
+          <label htmlFor="focus-context" className={!selectedNode ? "opacity-50" : "cursor-pointer"}>
+            Show only connections of selected node
+          </label>
+        </div>
         {selectedNode && (
           <NodeDetailPanel
             node={selectedNode}
@@ -163,12 +177,13 @@ export default function App() {
             </div>
         )}
         {!isLoading && graphData && viewMode === 'graph' && (
-          <GraphView 
-            data={graphData} 
+          <GraphView
+            data={graphData}
             selectedNodeId={selectedNode?.id || null}
             onNodeClick={setSelectedNode}
             onDeleteNode={handleDeleteNode}
             nodeTags={nodeTags}
+            showOnlySelectedContext={focusContextOnly}
           />
         )}
         {!isLoading && graphData && viewMode === 'checklist' && (

@@ -10,6 +10,7 @@ interface GraphViewProps {
   onNodeClick: (node: Node) => void;
   onDeleteNode: (nodeId: string) => void;
   nodeTags: Record<string, Tag>;
+  showOnlySelectedContext?: boolean; // when true, hide nodes/edges not directly connected to selected
 }
 
 const tagColors: Record<Tag, string> = {
@@ -19,17 +20,29 @@ const tagColors: Record<Tag, string> = {
     none: 'stroke-border'
 };
 
-const nodeTypeColors = {
-  'Goal': 'fill-yellow-400/80',
-  'Feature': 'fill-cyan-400/80',
-  'Task': 'fill-purple-400/80',
-  'Constraint': 'fill-orange-400/80',
-  'Idea': 'fill-lime-400/80',
+const nodeTypeColors: Record<string,string> = {
+  Goal: 'fill-yellow-400/80',
+  Feature: 'fill-cyan-400/80',
+  Task: 'fill-purple-400/80',
+  Constraint: 'fill-orange-400/80',
+  Idea: 'fill-lime-400/80',
+};
+
+const moduleTypeBorders: Record<string,string> = {
+  ui: 'border-blue-500',
+  backend: 'border-emerald-500',
+  storage: 'border-orange-500',
+  'ml-model': 'border-fuchsia-500',
+  'data-pipeline': 'border-cyan-600',
+  schema: 'border-indigo-500',
+  infra: 'border-red-600',
+  integration: 'border-teal-500',
+  logic: 'border-zinc-700'
 };
 
 const NODE_WIDTH = 160;
 
-const GraphView: React.FC<GraphViewProps> = ({ data, selectedNodeId, onNodeClick, onDeleteNode, nodeTags }) => {
+const GraphView: React.FC<GraphViewProps> = ({ data, selectedNodeId, onNodeClick, onDeleteNode, nodeTags, showOnlySelectedContext = false }) => {
   const svgRef = useRef<SVGSVGElement>(null);
   const [positionedNodes, setPositionedNodes] = useState<Node[]>([]);
   const containerRef = useRef<SVGGElement>(null);
@@ -136,13 +149,26 @@ const GraphView: React.FC<GraphViewProps> = ({ data, selectedNodeId, onNodeClick
     
     const nodeMap = new Map(positionedNodes.map(n => [n.id, n]));
     
-    const linkData = data.edges
+    let linkData = data.edges
       .map(edge => ({
         ...edge,
         sourceNode: nodeMap.get(edge.source)!,
         targetNode: nodeMap.get(edge.target)!
       }))
       .filter(e => e.sourceNode && e.targetNode);
+
+    let visibleNodeIds: Set<string> | null = null;
+    if (showOnlySelectedContext && selectedNodeId) {
+      visibleNodeIds = new Set<string>();
+      visibleNodeIds.add(selectedNodeId);
+      // collect directly connected neighbors
+      linkData.forEach(l => {
+        if (l.source === selectedNodeId) visibleNodeIds!.add(l.target);
+        if (l.target === selectedNodeId) visibleNodeIds!.add(l.source);
+      });
+      // filter links to only those touching selected
+      linkData = linkData.filter(l => l.source === selectedNodeId || l.target === selectedNodeId);
+    }
 
     const links = container.append('g')
       .attr('class', 'links')
@@ -152,12 +178,16 @@ const GraphView: React.FC<GraphViewProps> = ({ data, selectedNodeId, onNodeClick
       .attr('fill', 'none')
       .attr('stroke', '#a1a1aa')
       .attr('stroke-width', 2)
-      .attr('opacity', 0.9);
+      .attr('opacity', 0.9)
+      .attr('stroke-linecap', 'round'); // <-- ADD THIS LINE
 
     const nodes = container.append('g')
       .attr('class', 'nodes')
       .selectAll('g')
-      .data(positionedNodes, (d: any) => d.id)
+      .data(positionedNodes.filter(n => {
+        if (!visibleNodeIds) return true;
+        return visibleNodeIds.has(n.id);
+      }), (d: any) => d.id)
       .join('g')
       .attr('transform', d => `translate(${d.x!}, ${d.y!})`)
       .on('click', (event, d) => onNodeClick(d as Node))
@@ -186,7 +216,7 @@ const GraphView: React.FC<GraphViewProps> = ({ data, selectedNodeId, onNodeClick
 
         const inputPortsHtml = inputs.map((input, i) => `
             <div class="flex items-center gap-2 relative py-1" style="height: 32px;">
-                <div class="absolute" style="left: 0; top: 50%; transform: translate(-50%, -50%); width: 10px; height: 10px; background-color: white; border: 1px solid #71717a;"></div>
+                <div class="absolute" style="left: -5px; top: 50%; transform: translateY(-50%); width: 10px; height: 10px; background-color: white; border: 1px solid #71717a; border-radius: 50%;"></div>
                 <span class="text-xs text-zinc-800 break-words leading-tight pr-1">${input}</span>
             </div>
         `).join('');
@@ -194,14 +224,16 @@ const GraphView: React.FC<GraphViewProps> = ({ data, selectedNodeId, onNodeClick
         const outputPortsHtml = outputs.map((output, i) => `
             <div class="flex items-center justify-end gap-2 relative py-1" style="height: 32px;">
                 <span class="text-xs text-zinc-800 break-words text-right leading-tight pl-1">${output}</span>
-                <div class="absolute" style="right: 0; top: 50%; transform: translate(50%, -50%); width: 10px; height: 10px; background-color: white; border: 1px solid #71717a;"></div>
+                <div class="absolute" style="right: -5px; top: 50%; transform: translateY(-50%); width: 10px; height: 10px; background-color: white; border: 1px solid #71717a; border-radius: 50%;"></div>
             </div>
         `).join('');
         
+        const moduleBorder = d.moduleType ? moduleTypeBorders[d.moduleType] || 'border-zinc-800' : 'border-zinc-800';
         return `
-        <div class="flex flex-col shadow-lg border ${selectedNodeId === d.id ? 'border-primary' : 'border-zinc-800'} rounded-lg">
+        <div class="flex flex-col shadow-lg border ${selectedNodeId === d.id ? 'border-primary' : moduleBorder} rounded-lg">
             <div class="bg-black px-3 py-1.5 flex items-center justify-between relative rounded-t-lg" style="height: 28px;">
-                <span class="text-xs text-white break-words pr-6 leading-tight">${d.label}</span>
+            <span class="text-xs text-white break-words pr-6 leading-tight">${d.label}</span>
+            ${d.moduleType ? `<span class="absolute left-2 -top-2 text-[10px] px-1 py-0.5 rounded bg-white/10 border border-white/20 text-white">${d.moduleType}</span>` : ''}
                 <button class="delete-btn absolute top-1 right-1 hover:bg-white/20 rounded p-0.5 transition-colors" data-id="${d.id}">
                     <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M18 6 6 18" />

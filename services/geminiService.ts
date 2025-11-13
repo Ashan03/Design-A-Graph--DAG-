@@ -6,13 +6,17 @@ You are an expert system designer who helps break down complex project descripti
 
 **Instructions:**
 1.  **Identify Nodes:** Extract the key components from the text.
-    *   Categorize each node's 'type' as one of 'Goal', 'Feature', 'Task', 'Constraint', or 'Idea'.
-    *   Also, identify the key 'outputs' or artifacts that each node produces. This should be a list of strings. For example, a task 'Generate sales report' might have an output \`["CSV Report"]\`.
+    *   Assign 'type' from: Goal | Feature | Task | Constraint | Idea.
+    *   Determine a 'moduleType' from: ui | backend | storage | ml-model | data-pipeline | schema | infra | integration | logic. If uncertain default to logic.
+    *   Provide 'inputs' (artifacts consumed) and 'outputs' (artifacts produced). Prefer short noun phrases.
+    *   Provide 'owners' as an array of broad roles: frontend, backend, ml, infra, design, data.
+    *   Provide 'stack' with concrete tech hints if implied (e.g. ['react','s3','python']).
 2.  **Identify Edges:** This is the most critical step. Create edges that represent the flow of data or the completion of a prerequisite.
     *   The edge direction MUST be from the provider/prerequisite (source) to the consumer/dependent (target). For example, if 'Automatic Tagging' provides tags for 'Search Functionality', the edge is from 'Automatic Tagging' (source) to 'Search Functionality' (target).
     *   The edge 'label' MUST be a short, descriptive name for the data or artifact being passed from source to target. For example: 'Image Tags'. Avoid generic labels like "depends on" or "creates".
 3.  **Output Format:** The output must be a valid JSON object adhering to the provided schema. Ensure all 'source' and 'target' IDs in edges correspond to actual node IDs. Focus on the essential structure to make the project palpable for a designer—a refined, visual checklist. Avoid creating nodes for minor details.
-4.  Respond with ONLY the JSON object. Do not include any prose, code fences, or extra text.
+ 4.  Respond with ONLY the JSON object. Do not include any prose, code fences, or extra text.
+ 5.  Keep arrays small; omit owners/stack if truly unknown.
 
 **Project Description to Analyze:**
 ---
