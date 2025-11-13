@@ -81,6 +81,68 @@ const NodeDetailPanel: React.FC<NodeDetailPanelProps> = ({ node, tag, onUpdateNo
           </select>
         </div>
       </div>
+      
+      {editableNode.implementationType && (
+        <div>
+          <label className="text-xs font-medium text-muted-foreground">Implementation Type</label>
+          <div className="p-2 bg-accent/50 border border-border rounded-md mt-1 flex items-center gap-2">
+            <span className="text-xs">🔧</span>
+            <span className="text-sm font-medium">{editableNode.implementationType}</span>
+          </div>
+        </div>
+      )}
+      
+      {editableNode.inputs && editableNode.inputs.length > 0 && (
+        <div>
+          <label className="text-xs font-medium text-muted-foreground">Inputs</label>
+          <div className="mt-1 space-y-1">
+            {editableNode.inputs.map((input, idx) => (
+              <div key={idx} className="text-xs p-1 bg-blue-500/10 border border-blue-500/30 rounded">
+                📥 {input}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      
+      {editableNode.outputs && editableNode.outputs.length > 0 && (
+        <div>
+          <label className="text-xs font-medium text-muted-foreground">Outputs</label>
+          <div className="mt-1 space-y-1">
+            {editableNode.outputs.map((output, idx) => (
+              <div key={idx} className="text-xs p-1 bg-green-500/10 border border-green-500/30 rounded">
+                📤 {output}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      
+      {editableNode.resourceLinks && editableNode.resourceLinks.length > 0 && (
+        <div>
+          <label className="text-xs font-medium text-muted-foreground">Learning Resources</label>
+          <div className="mt-1 space-y-2">
+            {editableNode.resourceLinks.map((resource, idx) => (
+              <a
+                key={idx}
+                href={resource.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 p-2 bg-card border border-border rounded-md hover:bg-accent transition-colors text-xs group"
+              >
+                <span className="text-base">
+                  {resource.type === 'docs' && '📚'}
+                  {resource.type === 'tutorial' && '📝'}
+                  {resource.type === 'video' && '🎥'}
+                  {resource.type === 'forum' && '💬'}
+                </span>
+                <span className="flex-1 group-hover:text-primary">{resource.title}</span>
+                <span className="text-muted-foreground group-hover:text-primary">↗</span>
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

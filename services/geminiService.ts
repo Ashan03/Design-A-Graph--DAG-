@@ -28,10 +28,22 @@ Instead of generic names like "Constraint_1" or "Feature_3", create nodes that r
      * Bad: "Database_1", "Backend Service", "Feature_2"
    - **moduleType**: ui | backend | storage | ml-model | data-pipeline | schema | infra | integration | logic
    - **description**: Brief technical description of what this component does
-   - **inputs**: Specific artifacts consumed (e.g., "User Credentials", "Image Binary", "SQL Query")
-   - **outputs**: Specific artifacts produced (e.g., "Auth Token", "Thumbnail URL", "Search Results")
+   - **implementationType**: What kind of work this is: "API Endpoint" | "Database Query" | "Database Schema" | "Frontend Component" | "Background Job" | "Configuration" | "Infrastructure Setup" | "ML Model Training" | "Data Pipeline" | "Authentication" | "File Storage" | "Message Queue" | "Cache Layer" | "Business Logic" | "UI/UX Design"
+   - **inputs**: REQUIRED - Specific artifacts consumed. Every node must have inputs (except root nodes). Examples: ["User Credentials", "Image Binary", "SQL Query", "Configuration File"]
+   - **outputs**: REQUIRED - Specific artifacts produced. Every node must have outputs (except terminal nodes). Examples: ["Auth Token", "Thumbnail URL", "Search Results", "Processed Data"]
+   - **resourceLinks**: Array of helpful learning resources (max 3 per node):
+     * { "title": "Brief description", "url": "actual URL", "type": "docs|tutorial|video|forum" }
+     * Prefer official documentation, popular tutorials, or reputable sources
+     * Examples: AWS docs, MDN, official library docs, popular YouTube channels
    - **owners**: Roles responsible [frontend, backend, ml, infra, design, data, devops]
    - **stack**: Actual technologies [react, express, postgres, s3, tensorflow, etc.]
+
+CRITICAL INPUT/OUTPUT RULES:
+- Root nodes (entry points): Can have empty inputs, MUST have outputs
+- Intermediate nodes: MUST have both inputs AND outputs  
+- Terminal nodes (final steps): MUST have inputs, can have empty outputs
+- Never leave both inputs and outputs empty
+- Be specific: Not "data" but "User Profile JSON", "Image Metadata Object", "Auth JWT Token"
 
 2. **Create Edges as Data/Control Flow:**
    - Edge direction: Provider (source) → Consumer (target)
@@ -61,10 +73,23 @@ Generate a JSON object with this exact structure:
       "description": "What this component does technically",
       "type": "Goal|Feature|Task|Constraint|Idea",
       "moduleType": "ui|backend|storage|ml-model|data-pipeline|schema|infra|integration|logic",
+      "implementationType": "API Endpoint|Database Query|Database Schema|Frontend Component|etc",
       "outputs": ["Specific Output 1", "Specific Output 2"],
       "inputs": ["Specific Input 1"],
       "owners": ["frontend", "backend"],
-      "stack": ["react", "node.js"]
+      "stack": ["react", "node.js"],
+      "resourceLinks": [
+        {
+          "title": "Official React Documentation",
+          "url": "https://react.dev",
+          "type": "docs"
+        },
+        {
+          "title": "Building Upload Forms Tutorial",
+          "url": "https://example.com/tutorial",
+          "type": "tutorial"
+        }
+      ]
     }
   ],
   "edges": [
@@ -86,18 +111,43 @@ Bad Output:
 
 Good Output:
 - Nodes: 
-  * "Image Upload UI" (ui, react)
-  * "Upload API Gateway" (backend, express)
-  * "S3 Image Bucket" (storage, aws-s3)
-  * "Image Metadata DB" (storage, postgres)
-  * "ML Tagging Service" (ml-model, tensorflow)
-  * "Tag Index" (storage, elasticsearch)
-  * "Search API" (backend, express)
-  * "Search Results UI" (ui, react)
+  * "Image Upload UI" (ui, react, Frontend Component)
+    - inputs: ["User Click Event"]
+    - outputs: ["Selected Image File", "Upload Form Data"]
+    - resources: [{ title: "React File Upload Guide", url: "https://react.dev/reference/react-dom/components/input#reading-the-files-on-the-client", type: "docs" }]
+  * "Upload API Gateway" (backend, express, API Endpoint)
+    - inputs: ["Multipart Form Data", "Auth Token"]
+    - outputs: ["Upload Success Response", "Image S3 URL"]
+    - resources: [{ title: "Express Multer Middleware", url: "https://expressjs.com/en/resources/middleware/multer.html", type: "docs" }]
+  * "S3 Image Bucket" (storage, aws-s3, File Storage)
+    - inputs: ["Image Binary", "Metadata"]
+    - outputs: ["Stored Image URL", "Storage Event"]
+    - resources: [{ title: "AWS S3 Documentation", url: "https://docs.aws.amazon.com/s3/", type: "docs" }]
+  * "Image Metadata DB" (storage, postgres, Database Schema)
+    - inputs: ["Image URL", "User ID", "Upload Timestamp"]
+    - outputs: ["Metadata Record ID"]
+    - resources: [{ title: "PostgreSQL JSON Support", url: "https://www.postgresql.org/docs/current/datatype-json.html", type: "docs" }]
+  * "ML Tagging Service" (ml-model, tensorflow, ML Model Training)
+    - inputs: ["Image URL"]
+    - outputs: ["Tag Predictions Array", "Confidence Scores"]
+    - resources: [{ title: "TensorFlow Image Classification", url: "https://www.tensorflow.org/tutorials/images/classification", type: "tutorial" }]
+  * "Tag Index" (storage, elasticsearch, Database Query)
+    - inputs: ["Tags Array", "Image ID"]
+    - outputs: ["Indexed Document ID"]
+    - resources: [{ title: "Elasticsearch Quick Start", url: "https://www.elastic.co/guide/en/elasticsearch/reference/current/getting-started.html", type: "docs" }]
+  * "Search API" (backend, express, API Endpoint)
+    - inputs: ["Search Query", "User Auth Token"]
+    - outputs: ["Search Results JSON"]
+    - resources: [{ title: "Building Search APIs", url: "https://www.elastic.co/blog/building-a-search-api", type: "tutorial" }]
+  * "Search Results UI" (ui, react, Frontend Component)
+    - inputs: ["Search Results JSON"]
+    - outputs: ["Rendered Gallery View"]
+    - resources: [{ title: "React Grid Layouts", url: "https://react.dev/learn/rendering-lists", type: "docs" }]
 - Edges:
   * "Image Upload UI" → "Upload API Gateway" (label: "Multipart Form Data")
   * "Upload API Gateway" → "S3 Image Bucket" (label: "Image Binary")
   * "S3 Image Bucket" → "ML Tagging Service" (label: "Image URL")
+  * "ML Tagging Service" → "Tag Index" (label: "Tag Predictions Array")
   * "ML Tagging Service" → "Tag Index" (label: "Generated Tags")
   * "Search Results UI" → "Search API" (label: "Search Query")
   * "Search API" → "Tag Index" (label: "Tag Lookup Request")
