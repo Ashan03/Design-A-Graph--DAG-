@@ -13,6 +13,20 @@ interface ChecklistViewProps {
 
 const ChecklistView: React.FC<ChecklistViewProps> = ({ nodes, edges, completedNodes, onToggleComplete, readyToWorkNodes }) => {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [showCelebration, setShowCelebration] = useState(false);
+
+  const allCompleted = useMemo(() => {
+    return nodes.length > 0 && nodes.every(node => completedNodes.has(node.id));
+  }, [nodes, completedNodes]);
+
+  // Show celebration when all tasks completed
+  React.useEffect(() => {
+    if (allCompleted && nodes.length > 0) {
+      setShowCelebration(true);
+      const timer = setTimeout(() => setShowCelebration(false), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [allCompleted, nodes.length]);
 
   const dependencies = useMemo(() => {
     const deps = new Map<string, string[]>();
@@ -36,8 +50,24 @@ const ChecklistView: React.FC<ChecklistViewProps> = ({ nodes, edges, completedNo
   };
 
   return (
-    <div className="w-full max-w-4xl h-full overflow-y-auto bg-background p-6 rounded-lg border border-border">
-      <h2 className="text-2xl font-bold mb-4 text-foreground">Project Checklist</h2>
+    <div className="w-full max-w-4xl h-full overflow-y-auto bg-background p-6 rounded-lg border border-border relative">
+      {showCelebration && (
+        <div className="fixed inset-0 flex items-center justify-center pointer-events-none z-50">
+          <div className="bg-gradient-to-r from-yellow-400 via-pink-500 to-purple-600 text-white text-6xl md:text-8xl font-bold px-12 py-8 rounded-3xl shadow-2xl animate-bounce">
+            🎉 🎊 ✨
+          </div>
+        </div>
+      )}
+      
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-2xl font-bold text-foreground">Project Checklist</h2>
+        {allCompleted && nodes.length > 0 && (
+          <div className="flex items-center gap-2 bg-green-500/20 border border-green-500 text-green-700 dark:text-green-400 px-4 py-2 rounded-full animate-pulse">
+            <span className="text-2xl">🎉</span>
+            <span className="font-bold">All Done!</span>
+          </div>
+        )}
+      </div>
       <p className="text-muted-foreground mb-6">This list is ordered by project dependencies. Check items as you complete them.</p>
       <ul className="space-y-3">
         {nodes.map(node => {
